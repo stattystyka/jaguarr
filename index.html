@@ -676,7 +676,11 @@ list.appendChild(li);
         <input type="number" id="matchScoreInputPlayer" min="0" max="10" step="0.5" required />
         <button type="submit"><i class="fa fa-plus"></i></button>
       </form>
-      
+      <button id="transferPlayerBtn"><i class="fa fa-exchange-alt"></i> Przenieś zawodnika</button>
+      document.getElementById('transferPlayerBtn').onclick = function() {
+  // Wyświetl formularz przeniesienia
+  showTransferForm(currentDetailTeamId, currentDetailPlayerId, playerData);
+};
       <button id="showPlayerProgressBtn"><i class="fa fa-chart-line"></i> Zobacz postęp</button>
       <div id="playerProgressChartContainer" style="display:none;">
         <canvas id="playerProgressChart" width="300" height="220"></canvas>
@@ -1237,6 +1241,105 @@ function loadPlaytimePlayers() {
     showPlaytimeStats();
   });
 }
+  function showTransferForm(teamId, playerId, playerData) {
+  // Pobierz wszystkie drużyny do selecta
+  db.ref('teams').once('value').then(snapshot => {
+    const teams = snapshot.val() || {};
+    let formHtml = `
+      <h4>Przenieś zawodnika: ${playerData.name}</h4>
+      <label for="transferTeamSelect">Wybierz nową drużynę:</label>
+      <select id="transferTeamSelect">
+        ${Object.entries(teams).filter(([tid])=>tid!==teamId).map(([tid, t])=>`<option value="${tid}">${t.name}</option>`).join('')}
+      </select>
+      <label>Typ przeniesienia:</label>
+      <select id="transferTypeSelect">
+        <option value="permanent">Permanentnie</option>
+        <option value="temporary">Tymczasowo</option>
+      </select>
+      <div id="temporaryTransferDetails" style="display:none;">
+        <label>Na ile dni?</label>
+        <input type="number" id="transferDaysInput" min="1" max="365" value="7"/>
+      </div>
+      <button id="confirmTransferBtn">Potwierdź przeniesienie</button>
+      <button id="cancelTransferBtn">Anuluj</button>
+    `;
+    playerDetails.innerHTML += `<div id="transferFormContainer" class="player-detail-card">${formHtml}</div>`;
+
+    // Pokaż/ukryj pole "Na ile dni"
+    const transferTypeSelect = document.getElementById('transferTypeSelect');
+    transferTypeSelect.onchange = function() {
+      document.getElementById('temporaryTransferDetails').style.display =
+        this.value === 'temporary' ? 'block' : 'none';
+    };
+
+    // Obsługa kliknięcia „Potwierdź przeniesienie”
+    document.getElementById('confirmTransferBtn').onclick = async function() {
+      const newTeamId = document.getElementById('transferTeamSelect').value;
+      const transferType = transferTypeSelect.value;
+      if (!newTeamId) return alert('Wybierz drużynę!');
+      if (transferType === 'permanent') {
+        // Permanentne przeniesienie
+        const playerSnapshot = await db.ref(`players/${teamId}/${playerId}`).once('value');
+        await db.ref(`players/${newTeamId}`).push(playerSnapshot.val());
+        await db.ref(`players/${teamId}/${playerId}`).remove();
+        alert('Zawodnik został przeniesiony permanentnie.');
+        playerDetails.classList.add('hidden');
+        loadTeams();
+      } else {
+        // Tymczasowe przeniesienie
+        const days = parseInt(document.getElementById('transferDaysInput').value, 10);
+        if (!days || days < 1) return alert('Podaj liczbę dni!');
+        const until = Date.now() + days * 24 * 60 * 60 * 1000;
+        // Zapisz info o przeniesieniu w danych zawodnika
+        await db.ref(`players/${teamId}/${playerId}/temporaryTransfer`).set({
+          from: teamId,
+          to: newTeamId,
+          until
+        });
+        // Skopiuj zawodnika do nowej drużyny
+        const playerSnapshot = await db.ref(`players/${teamId}/${playerId}`).once('value');
+        await db.ref(`players/${newTeamId}/${playerId}`).set({
+          ...playerSnapshot.val(),
+          temporaryTransfer: {
+            from: teamId,
+            to: newTeamId,
+            until
+          }
+        });
+        alert(`Zawodnik został przeniesiony tymczasowo na ${days} dni.`);
+        playerDetails.classList.add('hidden');
+        loadTeams();
+        // Możesz dodać timer sprawdzający powrót zawodnika (patrz niżej)
+      }
+      document.getElementById('transferFormContainer').remove();
+    };
+
+    document.getElementById('cancelTransferBtn').onclick = function() {
+      document.getElementById('transferFormContainer').remove();
+    };
+  });
+}
+  function checkTemporaryTransfers() {
+  db.ref('players').once('value').then(snapshot => {
+    const allPlayers = snapshot.val() || {};
+    for (const teamId in allPlayers) {
+      for (const playerId in allPlayers[teamId]) {
+        const player = allPlayers[teamId][playerId];
+        if (player.temporaryTransfer && player.temporaryTransfer.until < Date.now()) {
+          const fromTeamId = player.temporaryTransfer.from;
+          // Przenieś z powrotem
+          db.ref(`players/${fromTeamId}`).push({
+            ...player,
+            temporaryTransfer: null // usuń info o transferze
+          }).then(() => {
+            db.ref(`players/${teamId}/${playerId}`).remove();
+          });
+        }
+      }
+    }
+  });
+}
+setInterval(checkTemporaryTransfers, 60 * 60 * 1000); // co godzinę
 function showPlaytimeStats() {
   const teamId = document.getElementById('playtimeTeamSelect').value;
   const playerId = document.getElementById('playtimePlayerSelect').value;
