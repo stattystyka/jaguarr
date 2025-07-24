@@ -677,10 +677,12 @@ list.appendChild(li);
         <button type="submit"><i class="fa fa-plus"></i></button>
       </form>
       <button id="transferPlayerBtn"><i class="fa fa-exchange-alt"></i> Przenieś zawodnika</button>
+
+};
       document.getElementById('transferPlayerBtn').onclick = function() {
   // Wyświetl formularz przeniesienia
   showTransferForm(currentDetailTeamId, currentDetailPlayerId, playerData);
-};
+  
       <button id="showPlayerProgressBtn"><i class="fa fa-chart-line"></i> Zobacz postęp</button>
       <div id="playerProgressChartContainer" style="display:none;">
         <canvas id="playerProgressChart" width="300" height="220"></canvas>
